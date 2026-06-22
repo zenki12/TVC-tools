@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Local agent/tooling state
+.agent/
+.agents/
+.claude/
+.cline/
+.kiro/
+_bmad/
+_bmad-output/
+
+# Temporary extraction and source-drop artifacts
+_extracted_birthday/
+_tpl/
+histaff-birthday-card.zip
+Logo HiStaff - Anh trong suot.png
+Logo TVC - Anh trong suot.png
