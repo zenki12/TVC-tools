@@ -1,22 +1,21 @@
 # TVC Tools
 
-Ứng dụng nội bộ gồm React/Vite frontend và Express API, cung cấp:
+Ung dung noi bo gom React/Vite frontend va Express API, cung cap:
 
-- Trình tạo Thiệp sinh nhật và xuất PNG.
-- Luồng AI tạo, chỉnh sửa và xuất DOCX Biên bản cuộc họp.
-- Gemini API key do từng người dùng nhập và chỉ lưu trong `sessionStorage`.
+- Trinh tao thiep sinh nhat va xuat PNG.
+- Luong AI tao, chinh sua va xuat DOCX Bien ban cuoc hop.
+- Gemini API key do tung user nhap trong module Bien ban va chi luu trong `sessionStorage`.
 
-## Chạy local
+## Chay local
 
 ```bash
 npm install
 npm run dev
 ```
 
-Frontend chạy tại `http://localhost:3000`, Express API chạy tại
-`http://localhost:3001`.
+Frontend chay tai `http://localhost:3000`, Express API chay tai `http://localhost:3001`.
 
-## Kiểm tra
+## Kiem tra
 
 ```bash
 npm run check
@@ -24,11 +23,14 @@ npm test
 npm run build
 ```
 
-## Cấu hình
+## Cau hinh
 
-Sao chép `.env.example` thành `.env` nếu cần đổi cổng Express. Không commit
-`.env`, API key hoặc secret.
+Sao chep `.env.example` thanh `.env` khi can cau hinh local. Khong commit `.env`, token hoac secret.
 
-Ứng dụng hiện không có cơ chế đăng nhập. Mọi người truy cập được máy chủ đều có
-thể gọi API; nếu cần giới hạn truy cập, hãy cấu hình ở reverse proxy hoặc hạ tầng
-mạng triển khai.
+- `PORT`: cong Express API local.
+- `BACKGROUND_ADMIN_PIN`: ma quan tri phan Background cua module Thiep sinh nhat.
+- `BLOB_READ_WRITE_TOKEN`: token Vercel Blob de luu anh nen dung chung tren production.
+
+Nguoi dung thuong khong can login. Rieng man hinh quan tri background yeu cau ma `BACKGROUND_ADMIN_PIN`; ma nay chi luu trong session trinh duyet sau khi nhap dung.
+
+Tren Vercel, can tao Vercel Blob store va cau hinh `BLOB_READ_WRITE_TOKEN` trong Project Settings. Neu chay local khong co token, app dung file `.data/birthday-backgrounds.json` de dev/test.

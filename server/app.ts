@@ -8,6 +8,12 @@ import {
 } from './gemini.js';
 import { renderMinutesDocx as renderMinutesDocxFile } from './docx.js';
 import {
+  createBirthdayBackgroundStore,
+  serializeBirthdayBackground,
+  type BirthdayBackground,
+  type BirthdayBackgroundStore,
+} from './birthday-backgrounds.js';
+import {
   validateMeetingMinutes,
   validateMinutesMetadata,
   type MeetingMinutes,
@@ -23,6 +29,8 @@ interface AppOptions {
   ) => Promise<MeetingMinutes>;
   checkGeminiKey?: (apiKey: string) => Promise<void>;
   renderMinutesDocx?: (minutes: MeetingMinutes) => Buffer;
+  birthdayBackgroundStore?: BirthdayBackgroundStore;
+  birthdayBackgroundAdminPin?: string;
 }
 
 const serverDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -33,9 +41,89 @@ export function createApp(options: AppOptions = {}) {
   const generateMinutes = options.generateMinutes ?? generateMinutesWithGemini;
   const checkGeminiKey = options.checkGeminiKey ?? checkGeminiKeyWithGemini;
   const renderMinutesDocx = options.renderMinutesDocx ?? renderMinutesDocxFile;
+  const birthdayBackgroundStore = options.birthdayBackgroundStore ?? createBirthdayBackgroundStore();
+  const birthdayBackgroundAdminPin =
+    options.birthdayBackgroundAdminPin ?? process.env.BACKGROUND_ADMIN_PIN ?? '';
 
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '10mb' }));
+
+  app.get('/api/birthday/backgrounds', async (_request, response) => {
+    try {
+      const backgrounds = await birthdayBackgroundStore.list();
+      response.json({ backgrounds: backgrounds.map(serializeBirthdayBackground) });
+    } catch (error) {
+      console.error('Birthday background list failed:', error);
+      response.status(500).json({ error: 'Không thể tải thư viện background dùng chung.' });
+    }
+  });
+
+  app.post('/api/birthday/backgrounds/admin/check', (request, response) => {
+    if (!isBackgroundAdminPinValid(request.headers['x-background-admin-pin'], birthdayBackgroundAdminPin)) {
+      response.status(401).json({ error: 'Mã quản trị background không đúng.' });
+      return;
+    }
+    response.json({ valid: true });
+  });
+
+  app.post('/api/birthday/backgrounds', async (request, response) => {
+    if (!isBackgroundAdminPinValid(request.headers['x-background-admin-pin'], birthdayBackgroundAdminPin)) {
+      response.status(401).json({ error: 'Mã quản trị background không đúng.' });
+      return;
+    }
+
+    const payload = validateBackgroundPayload(request.body);
+    if (!payload) {
+      response.status(400).json({ error: 'Thông tin background không hợp lệ.' });
+      return;
+    }
+
+    try {
+      const background = await birthdayBackgroundStore.create(payload);
+      response.status(201).json({ background: serializeBirthdayBackground(background) });
+    } catch (error) {
+      console.error('Birthday background create failed:', error);
+      response.status(503).json({ error: 'Không thể lưu background dùng chung lúc này.' });
+    }
+  });
+
+  app.patch('/api/birthday/backgrounds/:id', async (request, response) => {
+    if (!isBackgroundAdminPinValid(request.headers['x-background-admin-pin'], birthdayBackgroundAdminPin)) {
+      response.status(401).json({ error: 'Mã quản trị background không đúng.' });
+      return;
+    }
+
+    try {
+      const background = await birthdayBackgroundStore.update(request.params.id, request.body ?? {});
+      if (!background) {
+        response.status(404).json({ error: 'Không tìm thấy background.' });
+        return;
+      }
+      response.json({ background: serializeBirthdayBackground(background) });
+    } catch (error) {
+      console.error('Birthday background update failed:', error);
+      response.status(503).json({ error: 'Không thể cập nhật background dùng chung lúc này.' });
+    }
+  });
+
+  app.delete('/api/birthday/backgrounds/:id', async (request, response) => {
+    if (!isBackgroundAdminPinValid(request.headers['x-background-admin-pin'], birthdayBackgroundAdminPin)) {
+      response.status(401).json({ error: 'Mã quản trị background không đúng.' });
+      return;
+    }
+
+    try {
+      const removed = await birthdayBackgroundStore.remove(request.params.id);
+      if (!removed) {
+        response.status(404).json({ error: 'Không tìm thấy background.' });
+        return;
+      }
+      response.status(204).end();
+    } catch (error) {
+      console.error('Birthday background delete failed:', error);
+      response.status(503).json({ error: 'Không thể xóa background dùng chung lúc này.' });
+    }
+  });
 
   app.post('/api/minutes/generate', async (request, response) => {
     const apiKey = readGeminiApiKey(request.headers['x-gemini-api-key']);
@@ -133,6 +221,40 @@ export function createApp(options: AppOptions = {}) {
 
 function readGeminiApiKey(value: string | string[] | undefined) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function readHeaderSecret(value: string | string[] | undefined) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function isBackgroundAdminPinValid(value: string | string[] | undefined, expectedPin: string) {
+  const suppliedPin = readHeaderSecret(value);
+  return expectedPin.length > 0 && suppliedPin.length > 0 && suppliedPin === expectedPin;
+}
+
+function validateBackgroundPayload(value: unknown): Omit<BirthdayBackground, 'id' | 'uploadedAt'> | null {
+  const candidate = value as {
+    name?: unknown;
+    gender?: unknown;
+    url?: unknown;
+    isActive?: unknown;
+    isDefault?: unknown;
+  } | null;
+  if (!candidate) return null;
+
+  const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+  const gender = candidate.gender === 'male' || candidate.gender === 'female' ? candidate.gender : null;
+  const url = typeof candidate.url === 'string' ? candidate.url.trim() : '';
+
+  if (!name || !gender || !url) return null;
+
+  return {
+    name,
+    gender,
+    url,
+    isActive: typeof candidate.isActive === 'boolean' ? candidate.isActive : true,
+    isDefault: typeof candidate.isDefault === 'boolean' ? candidate.isDefault : false,
+  };
 }
 
 function normalizeGeminiError(error: unknown) {

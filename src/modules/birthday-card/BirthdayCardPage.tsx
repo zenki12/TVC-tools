@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CardState, Background, TextStyle } from './types';
 import { 
+  checkBackgroundAdminPin,
   getAllBackgrounds, 
   saveBackground, 
   deleteBackground, 
-  resetDatabaseToDefault 
+  resetDatabaseToDefault,
 } from './utils/db';
 
 import SidebarEditor from './components/SidebarEditor';
@@ -157,18 +158,17 @@ export default function BirthdayCardPage() {
   };
 
   // --- ADMIN ACTIONS ---
-  const handleAddBackground = async (newBg: Omit<Background, 'id' | 'uploadedAt'>) => {
-    const payload: Background = {
-      ...newBg,
-      id: `bg_${Date.now()}`,
-      uploadedAt: Date.now(),
-    };
-    await saveBackground(payload);
+  const handleVerifyAdminPin = async (adminPin: string) => {
+    await checkBackgroundAdminPin(adminPin);
+  };
+
+  const handleAddBackground = async (newBg: Omit<Background, 'id' | 'uploadedAt'>, adminPin: string) => {
+    await saveBackground(newBg, adminPin);
     await loadBackgrounds();
   };
 
-  const handleDeleteBg = async (id: string) => {
-    await deleteBackground(id);
+  const handleDeleteBg = async (id: string, adminPin: string) => {
+    await deleteBackground(id, adminPin);
     await loadBackgrounds();
     
     if (cardState.selectedBackgroundId === id) {
@@ -179,13 +179,14 @@ export default function BirthdayCardPage() {
     }
   };
 
-  const handleUpdateBgStatus = async (bg: Background) => {
-    await saveBackground(bg);
+  const handleUpdateBgStatus = async (bg: Background, adminPin: string) => {
+    if (bg.origin !== 'shared') return;
+    await saveBackground(bg, adminPin);
     await loadBackgrounds();
   };
 
-  const handleResetDatabase = async () => {
-    await resetDatabaseToDefault();
+  const handleResetDatabase = async (adminPin: string) => {
+    await resetDatabaseToDefault(adminPin);
     await loadBackgrounds();
   };
 
@@ -313,6 +314,7 @@ export default function BirthdayCardPage() {
               onDeleteBackground={handleDeleteBg}
               onUpdateBackgroundStatus={handleUpdateBgStatus}
               onResetToDefault={handleResetDatabase}
+              onVerifyAdminPin={handleVerifyAdminPin}
               onClose={() => setViewMode('editor')}
             />
           </motion.div>

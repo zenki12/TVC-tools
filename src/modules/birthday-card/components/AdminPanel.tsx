@@ -1,5 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { Background } from '../types';
+import {
+  clearBackgroundAdminPin,
+  readSavedBackgroundAdminPin,
+  saveBackgroundAdminPin,
+} from '../utils/db';
 import { 
   ArrowLeft, 
   Plus, 
@@ -16,10 +21,11 @@ import {
 
 interface AdminPanelProps {
   backgrounds: Background[];
-  onAddBackground: (newBg: Omit<Background, 'id' | 'uploadedAt'>) => Promise<void>;
-  onDeleteBackground: (id: string) => Promise<void>;
-  onUpdateBackgroundStatus: (bg: Background) => Promise<void>;
-  onResetToDefault: () => Promise<void>;
+  onAddBackground: (newBg: Omit<Background, 'id' | 'uploadedAt'>, adminPin: string) => Promise<void>;
+  onDeleteBackground: (id: string, adminPin: string) => Promise<void>;
+  onUpdateBackgroundStatus: (bg: Background, adminPin: string) => Promise<void>;
+  onResetToDefault: (adminPin: string) => Promise<void>;
+  onVerifyAdminPin: (adminPin: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -29,8 +35,12 @@ export default function AdminPanel({
   onDeleteBackground,
   onUpdateBackgroundStatus,
   onResetToDefault,
+  onVerifyAdminPin,
   onClose,
 }: AdminPanelProps) {
+  const [adminPin, setAdminPin] = useState(() => readSavedBackgroundAdminPin());
+  const [isUnlocked, setIsUnlocked] = useState(() => Boolean(readSavedBackgroundAdminPin()));
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [name, setName] = useState('');
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [isActive, setIsActive] = useState(true);
@@ -52,6 +62,45 @@ export default function AdminPanel({
     setTimeout(() => {
       setToast(null);
     }, 4000);
+  };
+
+  const requireSharedBackground = (bg: Background) => {
+    if (bg.origin !== 'shared') {
+      showToast('Mẫu nền mặc định gốc không thể sửa hoặc xóa từ màn hình này.', 'error');
+      return false;
+    }
+    return true;
+  };
+
+  const handleUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const pin = adminPin.trim();
+    if (!pin) {
+      showToast('Vui lòng nhập mã quản trị background.', 'error');
+      return;
+    }
+
+    setIsVerifyingPin(true);
+    try {
+      await onVerifyAdminPin(pin);
+      saveBackgroundAdminPin(pin);
+      setAdminPin(pin);
+      setIsUnlocked(true);
+      showToast('Đã mở quyền quản trị background trong phiên này.', 'success');
+    } catch (error) {
+      clearBackgroundAdminPin();
+      setIsUnlocked(false);
+      showToast(error instanceof Error ? error.message : 'Mã quản trị background không đúng.', 'error');
+    } finally {
+      setIsVerifyingPin(false);
+    }
+  };
+
+  const handleLock = () => {
+    clearBackgroundAdminPin();
+    setAdminPin('');
+    setIsUnlocked(false);
+    showToast('Đã khóa quyền quản trị background.', 'info');
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -101,7 +150,7 @@ export default function AdminPanel({
         url: imgUrl,
         isActive,
         isDefault,
-      });
+      }, adminPin);
 
       // Clear Form sau khi thêm thành công
       setName('');
@@ -118,14 +167,16 @@ export default function AdminPanel({
   };
 
   const handleToggleActive = async (bg: Background) => {
+    if (!requireSharedBackground(bg)) return;
     await onUpdateBackgroundStatus({
       ...bg,
       isActive: !bg.isActive,
-    });
+    }, adminPin);
     showToast(`Đã thay đổi trạng thái của "${bg.name}"!`);
   };
 
   const handleSetDefault = async (bg: Background) => {
+    if (!requireSharedBackground(bg)) return;
     if (!bg.isActive) {
       showToast('Mẫu nền đang ẩn, vui lòng chuyển sang chế độ "Sử dụng" trước.', 'error');
       return;
@@ -133,7 +184,7 @@ export default function AdminPanel({
     await onUpdateBackgroundStatus({
       ...bg,
       isDefault: true,
-    });
+    }, adminPin);
     showToast(`Đã đặt "${bg.name}" làm mặc định!`, 'success');
   };
 
@@ -145,6 +196,67 @@ export default function AdminPanel({
   const handleResetFactory = () => {
     setShowResetConfirm(true);
   };
+
+  if (!isUnlocked) {
+    return (
+      <div className="bg-[#050A1F] min-h-screen text-white flex flex-col" id="admin-pin-screen">
+        <header className="border-b border-white/10 bg-[#050A1F]/80 backdrop-blur-sm py-4 px-6 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              id="btn-admin-back"
+              onClick={onClose}
+              className="p-2 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-[#14C8FF] transition-colors cursor-pointer"
+              title="Quay lại trình thiết kế"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <div>
+              <h2 className="text-[#14C8FF] font-bold text-sm uppercase tracking-widest">Quản trị Background</h2>
+              <p className="text-white/40 text-[10px] uppercase font-medium tracking-wider">Cần mã quản trị để thêm/sửa/xóa nền dùng chung</p>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 flex items-center justify-center p-6">
+          <form
+            onSubmit={handleUnlock}
+            className="w-full max-w-md bg-[#000000]/40 border border-white/10 rounded-xl p-6 shadow-lg backdrop-blur-sm space-y-4 text-left"
+          >
+            <div>
+              <h3 className="text-white font-bold text-sm uppercase tracking-widest">Nhập mã quản trị</h3>
+              <p className="text-white/50 text-xs mt-2 leading-relaxed">
+                Người dùng thường vẫn sử dụng app không cần đăng nhập. Mã này chỉ khóa phần quản trị thư viện background dùng chung.
+              </p>
+            </div>
+            <input
+              type="password"
+              id="input-background-admin-pin"
+              value={adminPin}
+              onChange={(e) => setAdminPin(e.target.value)}
+              placeholder="Nhập mã quản trị background"
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 focus:border-[#14C8FF] rounded text-white text-sm outline-none"
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={isVerifyingPin}
+              className="w-full bg-gradient-to-r from-[#2B57F9] to-[#14C8FF] hover:brightness-110 disabled:brightness-50 text-white font-bold py-2.5 px-4 rounded text-xs uppercase tracking-widest cursor-pointer"
+            >
+              {isVerifyingPin ? 'Đang kiểm tra...' : 'Mở quản trị'}
+            </button>
+          </form>
+        </main>
+
+        {toast && (
+          <div className="fixed top-5 right-5 z-[100] max-w-sm bg-[#050A1F]/90 border border-white/10 rounded p-4 shadow-2xl backdrop-blur-md animate-fade-in flex items-center gap-3">
+            <div className={`w-2 h-2 rounded-full shrink-0 animate-pulse ${toast.type === 'success' ? 'bg-[#51FFB1]' : toast.type === 'error' ? 'bg-rose-500' : 'bg-[#14C8FF]'}`}></div>
+            <p className="text-white text-xs font-semibold uppercase tracking-wider leading-relaxed">{toast.message}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="bg-[#050A1F] min-h-screen text-white flex flex-col" id="admin-panel-screen">
@@ -167,15 +279,25 @@ export default function AdminPanel({
             <p className="text-white/40 text-[10px] uppercase font-medium tracking-wider">Tinhvan Consulting • HiStaff</p>
           </div>
         </div>
-        <button
-          type="button"
-          id="btn-reset-db"
-          onClick={handleResetFactory}
-          className="bg-white/5 hover:bg-rose-950/40 border border-white/10 hover:border-rose-500/40 text-rose-300 py-1.5 px-4 rounded text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer uppercase tracking-wider"
-          title="Xóa hết mẫu tùy chỉnh, phục hồi cài đặt gốc ban đầu"
-        >
-          <RefreshCw size={12} /> Cài đặt gốc
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            id="btn-reset-db"
+            onClick={handleResetFactory}
+            className="bg-white/5 hover:bg-rose-950/40 border border-white/10 hover:border-rose-500/40 text-rose-300 py-1.5 px-4 rounded text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer uppercase tracking-wider"
+            title="Xóa hết mẫu tùy chỉnh, phục hồi cài đặt gốc ban đầu"
+          >
+            <RefreshCw size={12} /> Cài đặt gốc
+          </button>
+          <button
+            type="button"
+            id="btn-lock-admin"
+            onClick={handleLock}
+            className="bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 py-1.5 px-4 rounded text-xs font-semibold transition-all cursor-pointer uppercase tracking-wider"
+          >
+            Khóa
+          </button>
+        </div>
       </header>
 
       {/* Grid Layout chính */}
@@ -342,6 +464,16 @@ export default function AdminPanel({
                       
                       {/* Badge Tags */}
                       <div className="flex items-center gap-1.5 mt-1">
+                        {bg.origin === 'builtin' && (
+                          <span className="bg-white/5 text-white/50 text-[8px] px-1 py-0.5 rounded font-bold uppercase tracking-wider border border-white/10">
+                            GỐC
+                          </span>
+                        )}
+                        {bg.origin === 'shared' && (
+                          <span className="bg-[#03E7D3]/10 text-[#03E7D3] text-[8px] px-1 py-0.5 rounded font-bold uppercase tracking-wider border border-[#03E7D3]/20">
+                            DÙNG CHUNG
+                          </span>
+                        )}
                         {bg.isDefault && (
                           <span className="bg-[#2B57F9] border border-white/10 text-white text-[8px] px-1 py-0.5 rounded font-bold uppercase tracking-wider">
                             MẶC ĐỊNH
@@ -364,21 +496,23 @@ export default function AdminPanel({
                   {/* Actions */}
                   <div className="flex items-center gap-1.5 shrink-0">
                     {/* Bật/Tắt Sử dụng */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleActive(bg)}
-                      className={`p-1.5 rounded transition-colors cursor-pointer ${
-                        bg.isActive
-                          ? 'text-[#14C8FF] hover:bg-white/10'
-                          : 'text-white/30 hover:bg-white/10'
-                      }`}
-                      title={bg.isActive ? 'Đổi sang Ẩn' : 'Đổi sang Sử dụng'}
-                    >
-                      {bg.isActive ? <Eye size={14} /> : <EyeOff size={14} />}
-                    </button>
+                    {bg.origin === 'shared' && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleActive(bg)}
+                        className={`p-1.5 rounded transition-colors cursor-pointer ${
+                          bg.isActive
+                            ? 'text-[#14C8FF] hover:bg-white/10'
+                            : 'text-white/30 hover:bg-white/10'
+                        }`}
+                        title={bg.isActive ? 'Đổi sang Ẩn' : 'Đổi sang Sử dụng'}
+                      >
+                        {bg.isActive ? <Eye size={14} /> : <EyeOff size={14} />}
+                      </button>
+                    )}
 
                     {/* Đặt làm Mặc định */}
-                    {!bg.isDefault && (
+                    {bg.origin === 'shared' && !bg.isDefault && (
                       <button
                         type="button"
                         onClick={() => handleSetDefault(bg)}
@@ -390,14 +524,16 @@ export default function AdminPanel({
                     )}
 
                     {/* Nút Xóa */}
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(bg.id, bg.name)}
-                      className="p-1.5 rounded transition-colors cursor-pointer text-rose-400/60 hover:text-rose-400 hover:bg-rose-950/30 border border-transparent hover:border-rose-500/20"
-                      title="Xóa mẫu nền"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {bg.origin === 'shared' && (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(bg.id, bg.name)}
+                        className="p-1.5 rounded transition-colors cursor-pointer text-rose-400/60 hover:text-rose-400 hover:bg-rose-950/30 border border-transparent hover:border-rose-500/20"
+                        title="Xóa mẫu nền"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -439,7 +575,7 @@ export default function AdminPanel({
                 onClick={async () => {
                   if (!deleteId) return;
                   try {
-                    await onDeleteBackground(deleteId);
+                    await onDeleteBackground(deleteId, adminPin);
                     showToast(`Đã xóa mẫu nền "${deleteName}" thành công!`, 'success');
                   } catch (err) {
                     showToast('Có lỗi xảy ra khi xóa background!', 'error');
@@ -481,7 +617,7 @@ export default function AdminPanel({
                 type="button"
                 onClick={async () => {
                   try {
-                    await onResetToDefault();
+                    await onResetToDefault(adminPin);
                     showToast('Đã khôi phục thành công thư viện mặc định chuẩn của HiStaff !', 'success');
                   } catch (err) {
                     showToast('Có lỗi xảy ra trong quá trình khôi phục gốc!', 'error');

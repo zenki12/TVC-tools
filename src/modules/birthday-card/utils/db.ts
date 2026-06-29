@@ -1,70 +1,29 @@
 import { Background } from '../types';
 import { generateDefaultBackground } from './defaultTemplates';
 
-const DB_NAME = 'HiStaffBirthdayCardDB';
-const DB_VERSION = 1;
-const STORE_NAME = 'backgrounds';
-
-export function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onerror = () => {
-      reject(request.error);
-    };
-
-    request.onsuccess = () => {
-      resolve(request.result);
-    };
-
-    request.onupgradeneeded = (event) => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
-    };
-  });
-}
+const ADMIN_PIN_SESSION_KEY = 'tvc-birthday-background-admin-pin';
 
 // Lấy toàn bộ danh sách background
 export async function getAllBackgrounds(): Promise<Background[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.getAll();
+  const defaults = createDefaultBackgrounds();
 
-    request.onsuccess = () => {
-      let results = request.result as Background[];
-      
-      // Nếu DB trống rỗng, khởi tạo với data mẫu mặc định
-      if (results.length === 0) {
-        initDefaultBackgrounds(db)
-          .then((defaults) => resolve(defaults))
-          .catch(reject);
-      } else {
-        // Sắp xếp: Mẫu mặc định lên đầu, sau đó sắp theo thời gian tạo giảm dần
-        results.sort((a, b) => {
-          if (a.isDefault && !b.isDefault) return -1;
-          if (!a.isDefault && b.isDefault) return 1;
-          return b.uploadedAt - a.uploadedAt;
-        });
-        resolve(results);
-      }
-    };
-
-    request.onerror = () => {
-      reject(request.error);
-    };
-  });
+  try {
+    const response = await fetch('/api/birthday/backgrounds', { cache: 'no-store' });
+    if (!response.ok) return defaults;
+    const body = await response.json();
+    const shared = parseSharedBackgrounds(body?.backgrounds);
+    return mergeDefaultAndSharedBackgrounds(defaults, shared);
+  } catch {
+    return defaults;
+  }
 }
 
 // Khởi tạo các mẫu mặc định
-async function initDefaultBackgrounds(db: IDBDatabase): Promise<Background[]> {
+function createDefaultBackgrounds(): Background[] {
   const defaultMaleUrl = generateDefaultBackground('male');
   const defaultFemaleUrl = generateDefaultBackground('female');
 
-  const defaultBackgrounds: Background[] = [
+  return [
     {
       id: 'default_male',
       name: 'Mẫu Nam chuẩn HiStaff (Tuxedo)',
@@ -73,6 +32,7 @@ async function initDefaultBackgrounds(db: IDBDatabase): Promise<Background[]> {
       isActive: true,
       isDefault: true,
       uploadedAt: Date.now(),
+      origin: 'builtin',
     },
     {
       id: 'default_female',
@@ -82,96 +42,125 @@ async function initDefaultBackgrounds(db: IDBDatabase): Promise<Background[]> {
       isActive: true,
       isDefault: true,
       uploadedAt: Date.now() + 10, // Đảm bảo khác timestamp xíu
+      origin: 'builtin',
     }
   ];
-
-  const transaction = db.transaction(STORE_NAME, 'readwrite');
-  const store = transaction.objectStore(STORE_NAME);
-
-  for (const bg of defaultBackgrounds) {
-    store.put(bg);
-  }
-
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => {
-      resolve(defaultBackgrounds);
-    };
-    transaction.onerror = () => {
-      reject(transaction.error);
-    };
-  });
 }
 
 // Lưu hoặc cập nhật background (Cho Admin)
-export async function saveBackground(background: Background): Promise<void> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
+export async function saveBackground(
+  background: Omit<Background, 'id' | 'uploadedAt'> | Background,
+  adminPin: string,
+): Promise<void> {
+  const isSharedExisting = 'id' in background && background.origin === 'shared';
+  const response = await fetch(
+    isSharedExisting ? `/api/birthday/backgrounds/${encodeURIComponent(background.id)}` : '/api/birthday/backgrounds',
+    {
+      method: isSharedExisting ? 'PATCH' : 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-background-admin-pin': adminPin,
+      },
+      body: JSON.stringify(background),
+    },
+  );
 
-    // Nếu background này được set làm mặc định, chúng ta phải hủy mặc định của các mẫu khác cùng giới tính
-    if (background.isDefault) {
-      const getRequest = store.getAll();
-      getRequest.onsuccess = () => {
-        const list = getRequest.result as Background[];
-        list.forEach((item) => {
-          if (item.gender === background.gender && item.id !== background.id && item.isDefault) {
-            item.isDefault = false;
-            store.put(item);
-          }
-        });
-        // Cuối cùng đưa background mới vào
-        store.put(background);
-      };
-    } else {
-      store.put(background);
-    }
-
-    transaction.oncomplete = () => {
-      resolve();
-    };
-    transaction.onerror = () => {
-      reject(transaction.error);
-    };
-  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
 }
 
 // Xóa background (Cho Admin)
-export async function deleteBackground(id: string): Promise<void> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    store.delete(id);
-
-    transaction.oncomplete = () => {
-      resolve();
-    };
-    transaction.onerror = () => {
-      reject(transaction.error);
-    };
+export async function deleteBackground(id: string, adminPin: string): Promise<void> {
+  const response = await fetch(`/api/birthday/backgrounds/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { 'x-background-admin-pin': adminPin },
   });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
 }
 
 // Khôi phục cài đặt gốc thư viện template
-export async function resetDatabaseToDefault(): Promise<Background[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const clearRequest = store.clear();
+export async function resetDatabaseToDefault(adminPin: string): Promise<Background[]> {
+  const backgrounds = await getAllBackgrounds();
+  const shared = backgrounds.filter((background) => background.origin === 'shared');
 
-    clearRequest.onsuccess = async () => {
-      try {
-        const defaults = await initDefaultBackgrounds(db);
-        resolve(defaults);
-      } catch (err) {
-        reject(err);
-      }
-    };
+  for (const background of shared) {
+    await deleteBackground(background.id, adminPin);
+  }
 
-    clearRequest.onerror = () => {
-      reject(clearRequest.error);
-    };
+  return createDefaultBackgrounds();
+}
+
+export async function checkBackgroundAdminPin(adminPin: string): Promise<void> {
+  const response = await fetch('/api/birthday/backgrounds/admin/check', {
+    method: 'POST',
+    headers: { 'x-background-admin-pin': adminPin },
   });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+}
+
+export function readSavedBackgroundAdminPin() {
+  return sessionStorage.getItem(ADMIN_PIN_SESSION_KEY) ?? '';
+}
+
+export function saveBackgroundAdminPin(adminPin: string) {
+  sessionStorage.setItem(ADMIN_PIN_SESSION_KEY, adminPin);
+}
+
+export function clearBackgroundAdminPin() {
+  sessionStorage.removeItem(ADMIN_PIN_SESSION_KEY);
+}
+
+function mergeDefaultAndSharedBackgrounds(defaults: Background[], shared: Background[]) {
+  const sharedDefaultGenders = new Set(
+    shared
+      .filter((background) => background.isDefault && background.isActive)
+      .map((background) => background.gender),
+  );
+
+  const adjustedDefaults = defaults.map((background) => ({
+    ...background,
+    isDefault: sharedDefaultGenders.has(background.gender) ? false : background.isDefault,
+  }));
+
+  return [...adjustedDefaults, ...shared].sort((a, b) => {
+    if (a.isDefault && !b.isDefault) return -1;
+    if (!a.isDefault && b.isDefault) return 1;
+    return b.uploadedAt - a.uploadedAt;
+  });
+}
+
+function parseSharedBackgrounds(value: unknown): Background[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => {
+      const candidate = item as Background | null;
+      return Boolean(
+        candidate &&
+          typeof candidate.id === 'string' &&
+          typeof candidate.name === 'string' &&
+          (candidate.gender === 'male' || candidate.gender === 'female') &&
+          typeof candidate.url === 'string' &&
+          typeof candidate.isActive === 'boolean' &&
+          typeof candidate.isDefault === 'boolean' &&
+          typeof candidate.uploadedAt === 'number',
+      );
+    })
+    .map((item) => ({ ...(item as Background), origin: 'shared' }));
+}
+
+async function readApiError(response: Response) {
+  try {
+    const body = await response.json();
+    if (typeof body?.error === 'string') return body.error;
+  } catch {
+    // ignore non-JSON API errors
+  }
+  return 'Không thể cập nhật thư viện background dùng chung.';
 }

@@ -6,6 +6,7 @@ export interface Background {
   isActive: boolean;
   isDefault: boolean;
   uploadedAt: number;
+  origin?: 'builtin' | 'shared';
 }
 
 export interface TextStyle {
