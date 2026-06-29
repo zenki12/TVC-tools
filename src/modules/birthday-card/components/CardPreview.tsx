@@ -83,9 +83,9 @@ export default function CardPreview({ cardState, activeBackground, onChange, onE
       ctx.fillRect(0, 0, 900, 1233);
     }
 
-    // 3. Vẽ Avatar Khách Hàng (Tâm 450, 510, bán kính R=190)
+    // 3. Vẽ Avatar Khách Hàng (Tâm 450, 530, bán kính R=190)
     const centerX = 450;
-    const centerY = 510;
+    const centerY = 530;
     const radius = 190;
 
     ctx.save();
@@ -150,9 +150,20 @@ export default function CardPreview({ cardState, activeBackground, onChange, onE
 
       const text = cardState.customerInfo.fullName.toUpperCase();
       
-      // Tạo gradient màu Neon Green #51FFB1 sang White #FFFFFF dọc theo chữ
-      const fontGrad = ctx.createLinearGradient(style.x, style.y - style.fontSize / 2, style.x, style.y + style.fontSize / 2);
-      fontGrad.addColorStop(0, '#51FFB1');
+      // Đo độ rộng chữ để tạo gradient tuyến tính từ trái sang phải
+      const textWidth = ctx.measureText(text).width;
+      let startX = style.x - textWidth / 2;
+      let endX = style.x + textWidth / 2;
+      if (style.align === 'left') {
+        startX = style.x;
+        endX = style.x + textWidth;
+      } else if (style.align === 'right') {
+        startX = style.x - textWidth;
+        endX = style.x;
+      }
+
+      const fontGrad = ctx.createLinearGradient(startX, style.y, endX, style.y);
+      fontGrad.addColorStop(0, style.color || '#51FFB1');
       fontGrad.addColorStop(1, '#FFFFFF');
       
       ctx.fillStyle = fontGrad;
@@ -260,8 +271,8 @@ export default function CardPreview({ cardState, activeBackground, onChange, onE
     if (!cardState.avatarUrl) return;
     const coords = getCanvasCoords(e);
     
-    // Khoảng cách từ điểm click đến tâm vòng tròn (450, 510)
-    const dist = Math.sqrt((coords.x - 450) ** 2 + (coords.y - 510) ** 2);
+    // Khoảng cách từ điểm click đến tâm vòng tròn (450, 530)
+    const dist = Math.sqrt((coords.x - 450) ** 2 + (coords.y - 530) ** 2);
     if (dist <= 190) {
       setIsDragging(true);
       setDragStart({

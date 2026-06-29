@@ -523,7 +523,45 @@ export default function SidebarEditor({ cardState, onChange, onResetStyle }: Sid
           </div>
 
           {/* Chọn nhanh màu */}
-          {activeTab !== 'name' && (
+          {activeTab === 'name' ? (
+            <div>
+              <span className="text-[10px] opacity-65 block mb-2 uppercase tracking-wider">Cấu hình Tông màu chữ (Gradient)</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  id="btn-gradient-green"
+                  onClick={() => handleStyleChange('name', 'color', '#51FFB1')}
+                  className={`flex items-center gap-2 p-2 rounded-lg border text-left transition-all ${
+                    cardState.nameStyle.color === '#51FFB1'
+                      ? 'bg-[#2B57F9]/20 border-[#2B57F9] text-white'
+                      : 'bg-[#000000]/30 border-white/15 text-white/60 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  <div className="w-4 h-4 rounded bg-[#51FFB1] shrink-0 shadow-lg border border-white/20"></div>
+                  <div className="leading-tight">
+                    <p className="text-[10px] font-bold">Xanh Neon</p>
+                    <p className="text-[8px] opacity-50 font-mono">#51FFB1 → #FFF</p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  id="btn-gradient-pink"
+                  onClick={() => handleStyleChange('name', 'color', '#FF5CB3')}
+                  className={`flex items-center gap-2 p-2 rounded-lg border text-left transition-all ${
+                    cardState.nameStyle.color === '#FF5CB3'
+                      ? 'bg-[#2B57F9]/20 border-[#2B57F9] text-white'
+                      : 'bg-[#000000]/30 border-white/15 text-white/60 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  <div className="w-4 h-4 rounded bg-[#FF5CB3] shrink-0 shadow-lg border border-white/20"></div>
+                  <div className="leading-tight">
+                    <p className="text-[10px] font-bold">Hồng Neon</p>
+                    <p className="text-[8px] opacity-50 font-mono">#FF5CB3 → #FFF</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+          ) : (
             <div>
               <span className="text-[10px] opacity-60 block mb-1 uppercase">Màu sắc</span>
               <div className="flex gap-2">

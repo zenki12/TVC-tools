@@ -45,7 +45,7 @@ const DEFAULT_ROLE_STYLE: TextStyle = {
 };
 
 const DEFAULT_COMPANY_STYLE: TextStyle = { 
-  fontSize: 18, 
+  fontSize: 21, 
   fontWeight: 'bold', 
   color: '#FFFFFF', 
   align: 'center', 
