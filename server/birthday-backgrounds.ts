@@ -28,8 +28,11 @@ const INDEX_PATH = 'birthday-backgrounds/index.json';
 const LOCAL_DATA_FILE = path.resolve(process.cwd(), '.data/birthday-backgrounds.json');
 
 export function createBirthdayBackgroundStore(): BirthdayBackgroundStore {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    return new VercelBlobBirthdayBackgroundStore();
+  const token =
+    process.env.BLOB_READ_WRITE_TOKEN ||
+    process.env.BDAY_BLOB_READ_WRITE_TOKEN;
+  if (token) {
+    return new VercelBlobBirthdayBackgroundStore(token);
   }
   if (process.env.VERCEL) {
     return new UnconfiguredBirthdayBackgroundStore();
@@ -50,13 +53,15 @@ export function serializeBirthdayBackground(background: BirthdayBackground) {
 }
 
 class VercelBlobBirthdayBackgroundStore implements BirthdayBackgroundStore {
+  constructor(private readonly token: string) {}
+
   async list() {
     return sortBackgrounds(await this.readIndex());
   }
 
   async create(input: Omit<BirthdayBackground, 'id' | 'uploadedAt'>) {
     const id = `bg_${Date.now()}_${randomUUID().slice(0, 8)}`;
-    const uploaded = await uploadBackgroundImage(id, input.name, input.url);
+    const uploaded = await uploadBackgroundImage(id, input.name, input.url, this.token);
     const item: BirthdayBackground = {
       ...input,
       id,
@@ -89,13 +94,13 @@ class VercelBlobBirthdayBackgroundStore implements BirthdayBackgroundStore {
     const next = current.filter((item) => item.id !== id);
     await this.writeIndex(next);
     if (target.pathname) {
-      await del(target.pathname);
+      await del(target.pathname, { token: this.token });
     }
     return true;
   }
 
   private async readIndex() {
-    const result = await list({ prefix: INDEX_PATH, limit: 1 });
+    const result = await list({ prefix: INDEX_PATH, limit: 1, token: this.token });
     const blob = result.blobs.find((item) => item.pathname === INDEX_PATH);
     if (!blob) return [];
 
@@ -111,6 +116,7 @@ class VercelBlobBirthdayBackgroundStore implements BirthdayBackgroundStore {
       allowOverwrite: true,
       contentType: 'application/json',
       cacheControlMaxAge: 60,
+      token: this.token,
     });
   }
 }
@@ -187,7 +193,7 @@ class UnconfiguredBirthdayBackgroundStore implements BirthdayBackgroundStore {
   }
 }
 
-async function uploadBackgroundImage(id: string, name: string, dataUrl: string) {
+async function uploadBackgroundImage(id: string, name: string, dataUrl: string, token: string) {
   const parsed = parseDataUrl(dataUrl);
   if (!parsed) {
     return { url: dataUrl, pathname: undefined };
@@ -198,6 +204,7 @@ async function uploadBackgroundImage(id: string, name: string, dataUrl: string) 
   const blob = await put(pathname, parsed.body, {
     access: 'public',
     contentType: parsed.contentType,
+    token,
   });
   return { url: blob.url, pathname: blob.pathname };
 }
